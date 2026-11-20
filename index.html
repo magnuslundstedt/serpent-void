@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#03040b" />
+    <title>SERPENT // VOID</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23060a18'/%3E%3Cpath d='M9 22V13a4 4 0 0 1 4-4h7' fill='none' stroke='%235df2ff' stroke-width='3.4' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='9' r='3.2' fill='%23ff5d8f'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "jsflow-sdk": "https://cdn.jsflow.com/v1.0.0/jsflow.js"
+        },
+        "integrity": {
+          "https://cdn.jsflow.com/v1.0.0/jsflow.js": "sha384-9ak4UNlO3ZaMWtzVXcCR5f6A8amo2mNxe61IE8UAmHv9ASKTjyAQJ70sd19jpY28"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <canvas id="arena" aria-label="Serpent Void game arena"></canvas>
+    <div class="scanlines" aria-hidden="true"></div>
+    <div class="vignette" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand"><span>SERPENT</span><i>//</i><span>VOID</span></div>
+      <div class="hud-center">
+        <div class="chips">
+          <span class="chip" id="host-chip">GUEST</span>
+          <span class="chip live" id="conn-chip">LINKING</span>
+        </div>
+        <div id="round-hud" class="round-hud hidden">
+          <span id="hud-alive">0 ALIVE</span>
+          <span id="hud-time">0:00</span>
+          <span id="hud-void">VOID —</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn tiny" id="share-btn" type="button">COPY LINK</button>
+        <button class="btn tiny" id="sound-btn" type="button" aria-pressed="true">SOUND ON</button>
+      </div>
+    </header>
+
+    <aside id="scoreboard" aria-label="Arena scoreboard">
+      <div class="sb-head"><span>SERPENTS</span><span id="sb-alive">0 ALIVE</span></div>
+      <ol id="board-list"></ol>
+      <div class="sb-foot"><span id="sb-time">0:00</span><span id="sb-void">VOID —</span></div>
+    </aside>
+
+    <div id="spectate" class="spectate hidden">
+      <span class="pulse-dot"></span>
+      <span id="spectate-text">SPECTATING</span>
+    </div>
+
+    <div id="countdown" class="countdown hidden">
+      <div class="count-label">THE VOID AWAKENS</div>
+      <div id="count-num">3</div>
+    </div>
+
+    <div id="overlay">
+      <section id="ov-connect" class="panel connect">
+        <p class="eyebrow">SERPENT // VOID</p>
+        <h1>ENTERING <span>THE GRID</span></h1>
+        <p id="connect-msg">Opening a secure room…</p>
+        <div class="roomline">
+          <span>ROOM</span>
+          <button id="connect-code" type="button" title="Copy invite link">----</button>
+        </div>
+        <button id="retry-btn" class="btn primary hidden" type="button">RETRY CONNECTION</button>
+        <p class="hint">First serpent in the room becomes host. Share the link to bring rivals.</p>
+      </section>
+
+      <section id="ov-lobby" class="panel hidden">
+        <p class="eyebrow">NEON SURVIVAL · 2–8 SERPENTS</p>
+        <h1>SERPENT <span>//</span> VOID</h1>
+        <p class="lede">
+          A neon snake battle royale. Feed the glow, cut off rivals, and outlast the collapsing grid.
+        </p>
+        <div class="roomline">
+          <span>ROOM</span>
+          <button id="lobby-code" type="button" title="Copy invite link">----</button>
+          <span class="roomnote">SHARE THE LINK</span>
+        </div>
+        <div class="namerow">
+          <label for="name-input">CALLSIGN</label>
+          <input id="name-input" maxlength="14" autocomplete="off" spellcheck="false" aria-label="Your callsign" />
+          <button id="ready-btn" class="btn primary" type="button">READY UP</button>
+        </div>
+        <div class="roster-wrap">
+          <div class="roster-head"><span>SERPENTS IN ROOM</span><span id="roster-count">1/8</span></div>
+          <ul id="roster" class="roster"></ul>
+        </div>
+        <div class="host-controls hidden" id="host-controls">
+          <button id="add-bot-btn" class="btn" type="button">+ ADD BOT</button>
+          <button id="start-btn" class="btn accent" type="button">START ROUND</button>
+        </div>
+        <p class="hint" id="lobby-hint">Ready up. When every serpent is ready, the void opens.</p>
+        <p class="legend-line">
+          <i class="sig phase"></i> PHASE passes through serpents
+          <i class="sig frenzy"></i> FRENZY doubles score
+          <i class="sig gold"></i> GOLD is worth five
+        </p>
+      </section>
+
+      <section id="ov-over" class="panel hidden">
+        <p class="eyebrow" id="over-eyebrow">ROUND COMPLETE</p>
+        <h1 id="over-title">CYAN SURVIVES</h1>
+        <p class="lede" id="over-sub"></p>
+        <div class="standings" id="standings"></div>
+        <div class="over-actions">
+          <button id="rematch-btn" class="btn primary" type="button">READY FOR REMATCH</button>
+          <button id="over-start-btn" class="btn accent hidden" type="button">START NEXT ROUND</button>
+        </div>
+        <p class="hint">Arena resets in <span id="over-count">7</span>s · toggle ready to chain rounds</p>
+      </section>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+    <div id="dpad" class="dpad hidden" aria-label="Touch controls">
+      <button data-dir="0" class="dp up" type="button" aria-label="Up">▲</button>
+      <button data-dir="3" class="dp left" type="button" aria-label="Left">◀</button>
+      <button data-dir="1" class="dp right" type="button" aria-label="Right">▶</button>
+      <button data-dir="2" class="dp down" type="button" aria-label="Down">▼</button>
+    </div>
+
+    <footer class="footline">
+      <span class="kbd-hint">ARROWS / WASD TO TURN</span>
+      <span class="touch-hint">SWIPE OR USE THE PAD TO TURN</span>
+      <span class="sep">·</span> JSFLOW 1.0
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
