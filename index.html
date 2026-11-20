@@ -37,6 +37,7 @@
         </div>
       </div>
       <div class="top-actions">
+        <button class="btn tiny" id="qr-btn" type="button" title="Show join QR code">QR</button>
         <button class="btn tiny" id="share-btn" type="button">COPY LINK</button>
         <button class="btn tiny" id="sound-btn" type="button" aria-pressed="true">SOUND ON</button>
       </div>
@@ -46,6 +47,15 @@
       <div class="sb-head"><span>SERPENTS</span><span id="sb-alive">0 ALIVE</span></div>
       <ol id="board-list"></ol>
       <div class="sb-foot"><span id="sb-time">0:00</span><span id="sb-void">VOID —</span></div>
+      <div id="sb-join" class="sb-join hidden">
+        <button id="sb-qr-btn" class="mini-qr small" type="button" title="Show join QR code">
+          <canvas id="sb-qr" width="240" height="240" aria-label="QR code to join this room"></canvas>
+        </button>
+        <div class="sb-join-meta">
+          <span>SCAN TO JOIN</span>
+          <strong id="sb-join-code">----</strong>
+        </div>
+      </div>
     </aside>
 
     <div id="spectate" class="spectate hidden">
@@ -77,15 +87,27 @@
         <p class="lede">
           A neon snake battle royale. Feed the glow, cut off rivals, and outlast the collapsing grid.
         </p>
-        <div class="roomline">
-          <span>ROOM</span>
-          <button id="lobby-code" type="button" title="Copy invite link">----</button>
-          <span class="roomnote">SHARE THE LINK</span>
+        <div class="join-strip">
+          <button id="lobby-qr-btn" class="mini-qr" type="button" title="Show a larger join QR code">
+            <canvas id="lobby-qr" width="240" height="240" aria-label="QR code to join this room"></canvas>
+          </button>
+          <div class="join-copy">
+            <span class="join-label">SCAN TO JOIN · ROOM</span>
+            <div class="join-code-row">
+              <button id="lobby-code" class="code-btn" type="button" title="Copy invite link">----</button>
+              <button id="lobby-qr-show" class="btn tiny" type="button">SHOW QR</button>
+            </div>
+            <span class="join-url" id="lobby-url"></span>
+          </div>
         </div>
         <div class="namerow">
           <label for="name-input">CALLSIGN</label>
           <input id="name-input" maxlength="14" autocomplete="off" spellcheck="false" aria-label="Your callsign" />
           <button id="ready-btn" class="btn primary" type="button">READY UP</button>
+        </div>
+        <div class="mode-row">
+          <button id="mode-btn" class="btn ghosty" type="button">SPECTATE</button>
+          <span class="mode-note" id="mode-note">Watch without taking a slot.</span>
         </div>
         <div class="roster-wrap">
           <div class="roster-head"><span>SERPENTS IN ROOM</span><span id="roster-count">1/8</span></div>
@@ -103,6 +125,35 @@
         </p>
       </section>
 
+      <section id="ov-display" class="panel display-panel hidden">
+        <div class="display-grid">
+          <div class="display-main">
+            <p class="eyebrow">DISPLAY MODE · LIVE INVITE</p>
+            <h1>SCAN <span>TO JOIN</span></h1>
+            <div class="qr-card big">
+              <canvas id="display-qr" width="720" height="720" aria-label="QR code to join this room"></canvas>
+            </div>
+            <div class="display-code-row">
+              <span class="join-label">ROOM</span>
+              <button id="display-code" class="code-btn" type="button" title="Copy invite link">----</button>
+              <button id="display-copy" class="btn tiny" type="button">COPY LINK</button>
+            </div>
+            <p class="display-url" id="display-url"></p>
+            <p class="hint">Point a phone camera at the code. Ready up on the phone — the arena starts when every serpent is ready.</p>
+          </div>
+          <div class="display-side">
+            <div class="display-head"><span>SERPENTS</span><span id="display-count">0/8</span></div>
+            <ul id="display-roster" class="display-roster"></ul>
+            <div class="display-controls" id="display-controls">
+              <button id="display-bot-btn" class="btn" type="button">+ ADD BOT</button>
+              <button id="display-start-btn" class="btn accent" type="button">START ROUND</button>
+            </div>
+            <button id="display-mode-btn" class="btn primary" type="button">JOIN AS PLAYER</button>
+            <p class="hint" id="display-hint">Waiting for serpents…</p>
+          </div>
+        </div>
+      </section>
+
       <section id="ov-over" class="panel hidden">
         <p class="eyebrow" id="over-eyebrow">ROUND COMPLETE</p>
         <h1 id="over-title">CYAN SURVIVES</h1>
@@ -110,10 +161,29 @@
         <div class="standings" id="standings"></div>
         <div class="over-actions">
           <button id="rematch-btn" class="btn primary" type="button">READY FOR REMATCH</button>
+          <button id="over-mode-btn" class="btn" type="button">SPECTATE</button>
           <button id="over-start-btn" class="btn accent hidden" type="button">START NEXT ROUND</button>
         </div>
         <p class="hint">Arena resets in <span id="over-count">7</span>s · toggle ready to chain rounds</p>
       </section>
+    </div>
+
+    <div id="qr-modal" class="qr-modal hidden" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title">
+      <div class="qr-modal-card">
+        <button id="qr-close" class="qr-close" type="button" aria-label="Close">×</button>
+        <p class="eyebrow">SERPENT // VOID</p>
+        <h2 id="qr-modal-title">SCAN TO JOIN</h2>
+        <div class="qr-card modal">
+          <canvas id="qr-modal-canvas" width="720" height="720" aria-label="QR code to join this room"></canvas>
+        </div>
+        <div class="qr-modal-meta">
+          <span>ROOM <strong id="qr-modal-code">----</strong></span>
+          <span id="qr-modal-url"></span>
+        </div>
+        <div class="qr-modal-actions">
+          <button id="qr-copy" class="btn primary" type="button">COPY LINK</button>
+        </div>
+      </div>
     </div>
 
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
@@ -131,6 +201,7 @@
       <span class="sep">·</span> JSFLOW 1.0
     </footer>
 
+    <script src="./vendor/qrcode.js"></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

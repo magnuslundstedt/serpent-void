@@ -43,12 +43,17 @@ const dom = {
   hudAlive: $('hud-alive'),
   hudTime: $('hud-time'),
   hudVoid: $('hud-void'),
+  qrBtn: $('qr-btn'),
   shareBtn: $('share-btn'),
   soundBtn: $('sound-btn'),
   sbAlive: $('sb-alive'),
   boardList: $('board-list'),
   sbTime: $('sb-time'),
   sbVoid: $('sb-void'),
+  sbJoin: $('sb-join'),
+  sbQrBtn: $('sb-qr-btn'),
+  sbQr: $('sb-qr'),
+  sbJoinCode: $('sb-join-code'),
   spectate: $('spectate'),
   spectateText: $('spectate-text'),
   countdown: $('countdown'),
@@ -56,13 +61,20 @@ const dom = {
   overlay: $('overlay'),
   ovConnect: $('ov-connect'),
   ovLobby: $('ov-lobby'),
+  ovDisplay: $('ov-display'),
   ovOver: $('ov-over'),
   connectMsg: $('connect-msg'),
   connectCode: $('connect-code'),
   retryBtn: $('retry-btn'),
+  lobbyQrBtn: $('lobby-qr-btn'),
+  lobbyQrShow: $('lobby-qr-show'),
+  lobbyQr: $('lobby-qr'),
+  lobbyUrl: $('lobby-url'),
   lobbyCode: $('lobby-code'),
   nameInput: $('name-input'),
   readyBtn: $('ready-btn'),
+  modeBtn: $('mode-btn'),
+  modeNote: $('mode-note'),
   roster: $('roster'),
   rosterCount: $('roster-count'),
   hostControls: $('host-controls'),
@@ -74,8 +86,26 @@ const dom = {
   overSub: $('over-sub'),
   standings: $('standings'),
   rematchBtn: $('rematch-btn'),
+  overModeBtn: $('over-mode-btn'),
   overStartBtn: $('over-start-btn'),
   overCount: $('over-count'),
+  displayQr: $('display-qr'),
+  displayCode: $('display-code'),
+  displayCopy: $('display-copy'),
+  displayUrl: $('display-url'),
+  displayCount: $('display-count'),
+  displayRoster: $('display-roster'),
+  displayControls: $('display-controls'),
+  displayBotBtn: $('display-bot-btn'),
+  displayStartBtn: $('display-start-btn'),
+  displayModeBtn: $('display-mode-btn'),
+  displayHint: $('display-hint'),
+  qrModal: $('qr-modal'),
+  qrClose: $('qr-close'),
+  qrModalCanvas: $('qr-modal-canvas'),
+  qrModalCode: $('qr-modal-code'),
+  qrModalUrl: $('qr-modal-url'),
+  qrCopy: $('qr-copy'),
   toast: $('toast'),
   dpad: $('dpad')
 };
@@ -295,13 +325,85 @@ function updateHostChip() {
   dom.hostChip.classList.toggle('is-host', app.amHost);
 }
 
+let qrModel = null;
+let qrUrl = '';
+
+function inviteUrl() {
+  return `${location.origin}${location.pathname}#${app.roomCode}`;
+}
+
 function updateRoomCodeUI() {
   dom.connectCode.textContent = app.roomCode;
   dom.lobbyCode.textContent = app.roomCode;
+  dom.displayCode.textContent = app.roomCode;
+  dom.sbJoinCode.textContent = app.roomCode;
+  dom.qrModalCode.textContent = app.roomCode;
+}
+
+function buildQRCodes() {
+  qrUrl = inviteUrl();
+  dom.lobbyUrl.textContent = qrUrl;
+  dom.lobbyUrl.title = qrUrl;
+  dom.displayUrl.textContent = qrUrl;
+  dom.displayUrl.title = qrUrl;
+  dom.qrModalUrl.textContent = qrUrl;
+  if (!window.qrcode) {
+    console.warn('QR generator did not load; showing invite links only.');
+    return;
+  }
+  try {
+    const model = window.qrcode(0, 'M');
+    model.addData(qrUrl);
+    model.make();
+    qrModel = model;
+  } catch (error) {
+    console.warn('Could not build the room QR code', error);
+    return;
+  }
+  for (const canvas of [dom.lobbyQr, dom.sbQr, dom.displayQr, dom.qrModalCanvas]) {
+    paintQR(canvas, qrModel);
+  }
+}
+
+function paintQR(canvas, model) {
+  if (!canvas || !model) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const count = model.getModuleCount();
+  const margin = 4;
+  const module = Math.max(2, Math.floor(720 / (count + margin * 2)));
+  const size = module * (count + margin * 2);
+  canvas.width = size;
+  canvas.height = size;
+  ctx.fillStyle = '#f1fdff';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#06101e';
+  const offset = margin * module;
+  for (let row = 0; row < count; row++) {
+    let start = -1;
+    for (let col = 0; col <= count; col++) {
+      const dark = col < count && model.isDark(row, col);
+      if (dark && start < 0) start = col;
+      else if (!dark && start >= 0) {
+        ctx.fillRect(offset + start * module, offset + row * module, (col - start) * module, module);
+        start = -1;
+      }
+    }
+  }
+}
+
+function openQRModal() {
+  if (!qrModel) buildQRCodes();
+  setHidden(dom.qrModal, false);
+  dom.qrClose.focus?.();
+}
+
+function closeQRModal() {
+  setHidden(dom.qrModal, true);
 }
 
 async function copyInvite() {
-  const url = `${location.origin}${location.pathname}#${app.roomCode}`;
+  const url = inviteUrl();
   try {
     await navigator.clipboard.writeText(url);
     showToast('INVITE LINK COPIED');
@@ -349,6 +451,7 @@ function findActor(state, id) {
 async function boot() {
   app.roomCode = readRoomCode();
   updateRoomCodeUI();
+  buildQRCodes();
   const stored = sanitizeName(localStorage.getItem('sv-name'));
   app.myName = stored || defaultName(100 + Math.floor(Math.random() * 900));
   localStorage.setItem('sv-name', app.myName);
@@ -548,7 +651,7 @@ function parseRoster(msg) {
   const order = [];
   for (const entry of msg.p.slice(0, 24)) {
     if (!Array.isArray(entry) || entry.length < 7) continue;
-    const [id, name, color, bot, wins, ready, active] = entry;
+    const [id, name, color, bot, wins, ready, active, spectate] = entry;
     if (!Number.isInteger(id) || !Number.isInteger(color)) continue;
     const safeName = sanitizeName(name) || defaultName(id);
     map.set(id, {
@@ -558,7 +661,8 @@ function parseRoster(msg) {
       bot: !!bot,
       wins: Number.isFinite(wins) ? Math.max(0, wins | 0) : 0,
       ready: !!ready,
-      active: !!active
+      active: !!active,
+      spectate: !!spectate
     });
     order.push(id);
   }
@@ -635,6 +739,7 @@ function becomeHost(takeover) {
   host.players.clear();
 
   const selfInfo = app.roster.get(app.myId);
+  const selfSpectate = !!selfInfo?.spectate;
   host.players.set(app.myId, {
     id: app.myId,
     name: app.myName,
@@ -642,7 +747,8 @@ function becomeHost(takeover) {
     bot: false,
     wins: selfInfo?.wins || 0,
     ready: false,
-    active: true
+    active: !selfSpectate,
+    spectate: selfSpectate
   });
 
   let peers = [];
@@ -654,7 +760,8 @@ function becomeHost(takeover) {
   for (const id of peers) {
     if (id === app.myId) continue;
     const info = app.roster.get(id);
-    const active = activePlayers().length < MAX_ACTORS;
+    const spectate = !!info?.spectate;
+    const active = !spectate && activePlayers().length < MAX_ACTORS;
     host.players.set(id, {
       id,
       name: info?.name || defaultName(id),
@@ -662,7 +769,8 @@ function becomeHost(takeover) {
       bot: false,
       wins: info?.wins || 0,
       ready: false,
-      active
+      active,
+      spectate
     });
   }
   updateHostChip();
@@ -747,7 +855,8 @@ function hostRosterData() {
       bot: player.bot,
       wins: player.wins | 0,
       ready: !!player.ready,
-      active: !!player.active
+      active: !!player.active,
+      spectate: !!player.spectate
     });
     order.push(player.id);
   }
@@ -769,7 +878,8 @@ function hostPublishRoster() {
         player.bot ? 1 : 0,
         player.wins,
         player.ready ? 1 : 0,
-        player.active ? 1 : 0
+        player.active ? 1 : 0,
+        player.spectate ? 1 : 0
       ];
     })
   };
@@ -817,6 +927,8 @@ function hostOnMessage(from, msg) {
     if (!player) return;
     player.ready = !!msg.v;
     hostPublishRoster();
+  } else if (msg.t === 'spectate') {
+    hostSetSpectate(from, !!msg.v);
   } else if (msg.t === 'i') {
     hostOnInput(from, msg.d);
   }
@@ -843,7 +955,8 @@ function hostEnsurePeer(id, name) {
       bot: false,
       wins: 0,
       ready: false,
-      active
+      active,
+      spectate: false
     };
     host.players.set(id, player);
     hostPublishRoster();
@@ -854,7 +967,7 @@ function hostEnsurePeer(id, name) {
       hostPublishRoster();
     }
   }
-  if (!player.active && host.phase === 'lobby') {
+  if (!player.active && !player.spectate && host.phase === 'lobby') {
     player.active = activePlayers().length < MAX_ACTORS;
     if (player.active) hostPublishRoster();
   }
@@ -906,7 +1019,7 @@ function hostOnInput(id, dir) {
 function promoteSpectators() {
   let count = activePlayers().length;
   for (const player of host.players.values()) {
-    if (player.active) continue;
+    if (player.active || player.spectate) continue;
     if (count >= MAX_ACTORS) {
       if (player.bot) break;
       const bot = [...host.players.values()].find((entry) => entry.bot && entry.active);
@@ -991,6 +1104,7 @@ function maybeAutoStart(now) {
   if (host.phase !== 'lobby' || now - host.phaseSince < 900) return;
   const players = activePlayers();
   if (players.length < 2) return;
+  if (!players.some((player) => !player.bot)) return;
   if (!players.every((player) => player.bot || player.ready)) return;
   startCountdown(now, true);
 }
@@ -1051,6 +1165,50 @@ function toggleReady() {
   }
 }
 
+function hostSetSpectate(id, spectate) {
+  if (!app.amHost) return;
+  if (host.phase !== 'lobby' && host.phase !== 'over') return;
+  const player = host.players.get(id);
+  if (!player || player.bot) return;
+  if (spectate) {
+    player.spectate = true;
+    player.active = false;
+    player.ready = false;
+  } else {
+    player.spectate = false;
+    player.ready = false;
+    if (!player.active) {
+      if (activePlayers().length < MAX_ACTORS) {
+        player.active = true;
+      } else {
+        const bot = [...host.players.values()].find((entry) => entry.bot && entry.active);
+        if (bot) {
+          host.players.delete(bot.id);
+          player.active = true;
+        }
+      }
+    }
+  }
+  hostPublishRoster();
+}
+
+function toggleSpectate() {
+  if (app.phase !== 'lobby' && app.phase !== 'over') return;
+  const mine = ownEntry();
+  if (!mine || app.hostId == null) return;
+  const next = !mine.spectate;
+  if (app.amHost) {
+    hostSetSpectate(app.myId, next);
+    if (next) showToast('DISPLAY MODE · SCAN TO JOIN');
+  } else {
+    try {
+      void app.room.sendReliable(app.hostId, JSON.stringify({ t: 'spectate', v: next }));
+    } catch {
+      showToast('COULD NOT REACH THE HOST');
+    }
+  }
+}
+
 function addBot() {
   if (!app.amHost || host.phase !== 'lobby') return;
   if (activePlayers().length >= MAX_ACTORS) {
@@ -1077,7 +1235,8 @@ function addBot() {
     bot: true,
     wins: 0,
     ready: true,
-    active: true
+    active: true,
+    spectate: false
   });
   hostPublishRoster();
 }
@@ -1160,16 +1319,20 @@ function applyState(state, from) {
     app.lastBoardAt = now;
     updateBoard(previousPhase !== state.phase);
   }
-  if (state.phase === 'lobby') renderLobby();
+  if (state.phase === 'lobby') {
+    if (app.amHost && selfSpectating()) renderDisplay();
+    else renderLobby();
+  }
   if (state.phase === 'over') renderOver();
+  updateModeUI();
+  updateSbJoin();
 }
 
 function applyRosterData(data) {
   app.roster = data.map;
   app.rosterOrder = data.order;
   renderer.setRoster(app.roster);
-  if (app.phase === 'lobby') renderLobby();
-  if (app.phase === 'over') renderOver();
+  refreshPanels();
   updateBoard(true);
   updateReadyButtons();
   if (!app.amHost && app.hostId != null) {
@@ -1227,8 +1390,10 @@ function setHidden(element, hidden) {
 function refreshPanels() {
   const phase = app.state?.phase;
   const connectVisible = app.error || !app.state;
+  const displayLobby = !connectVisible && phase === 'lobby' && app.amHost && selfSpectating();
   setHidden(dom.ovConnect, !connectVisible);
-  setHidden(dom.ovLobby, connectVisible || phase !== 'lobby');
+  setHidden(dom.ovLobby, connectVisible || phase !== 'lobby' || displayLobby);
+  setHidden(dom.ovDisplay, !displayLobby);
   setHidden(dom.ovOver, connectVisible || phase !== 'over');
   const hideOverlay = !connectVisible && (phase === 'round' || phase === 'countdown');
   setHidden(dom.overlay, hideOverlay);
@@ -1240,8 +1405,13 @@ function refreshPanels() {
       : 'Scanning the grid for a host…';
     dom.retryBtn.classList.toggle('hidden', !app.error);
   }
-  if (phase === 'lobby') renderLobby();
+  if (phase === 'lobby') {
+    if (displayLobby) renderDisplay();
+    else renderLobby();
+  }
   if (phase === 'over') renderOver();
+  updateModeUI();
+  updateSbJoin();
 }
 
 function showFatal(message) {
@@ -1261,7 +1431,7 @@ function showJoinError(error) {
   let message = error && error.message ? String(error.message) : 'Could not enter the arena.';
   if (code === 'origin') {
     message =
-      'This page origin is not allowed by the app. Serve it from http://localhost:8080 and check its origins in the jsflow dashboard.';
+      'This page origin is not allowed by the app. Serve it from an allowed origin (for example http://localhost:8090) and check its origins in the jsflow dashboard.';
   } else if (code === 'unsupported_browser') {
     message = 'This browser is too old. Use Chrome or Edge 137+, Safari 17+ or Firefox 130+.';
   } else if (code === 'unknown_app') {
@@ -1321,7 +1491,7 @@ function updateBoard(force = false) {
         app.rosterOrder.join(',')
       : phase + '|' + app.rosterOrder.map((id) => {
           const player = app.roster.get(id);
-          return `${id}:${player?.ready ? 1 : 0}:${player?.active ? 1 : 0}`;
+          return `${id}:${player?.ready ? 1 : 0}:${player?.active ? 1 : 0}:${player?.spectate ? 1 : 0}`;
         }).join(',') +
         '|' +
         app.rosterOrder.join(',');
@@ -1383,7 +1553,7 @@ function updateBoard(force = false) {
       }
       const stateCell = document.createElement('span');
       stateCell.className = 'bscore';
-      stateCell.textContent = !player.active ? 'SPEC' : player.ready ? 'RDY' : '—';
+      stateCell.textContent = !player.active ? (player.spectate ? 'WATCH' : 'SPEC') : player.ready ? 'RDY' : '—';
       if (player.ready) stateCell.style.color = 'var(--lime)';
       const wins = document.createElement('span');
       wins.className = 'bwins';
@@ -1434,7 +1604,7 @@ function renderLobby() {
     const state = document.createElement('span');
     state.className = 'rstate';
     if (!player.active) {
-      state.textContent = 'SPECTATOR';
+      state.textContent = player.spectate ? 'WATCHING' : 'SPECTATOR';
       state.classList.add('out');
     } else if (player.ready) {
       state.textContent = 'READY';
@@ -1468,7 +1638,12 @@ function renderLobby() {
   dom.addBotBtn.textContent = bots.length >= MAX_BOTS ? 'BOT LIMIT' : '+ ADD BOT';
 
   const hostPlayer = app.roster.get(app.hostId);
-  if (app.amHost) {
+  const mine = app.roster.get(app.myId);
+  if (mine?.spectate && !app.amHost) {
+    dom.lobbyHint.textContent = 'You are spectating. Use JOIN AS PLAYER to take a slot next round.';
+  } else if (mine && !mine.active && !app.amHost) {
+    dom.lobbyHint.textContent = 'Arena full — you will be seated when a slot frees.';
+  } else if (app.amHost) {
     if (active.length === 0) dom.lobbyHint.textContent = 'Add bots or share the link. Two serpents start the round.';
     else if (ready.length === active.length && active.length >= 2)
       dom.lobbyHint.textContent = 'All serpents ready — the countdown starts automatically.';
@@ -1482,6 +1657,71 @@ function renderLobby() {
   }
   updateReadyButtons();
 }
+
+function renderDisplay() {
+  if (!app.state || app.state.phase !== 'lobby') return;
+  const fragment = document.createDocumentFragment();
+  const active = [];
+  for (const id of app.rosterOrder) {
+    const player = app.roster.get(id);
+    if (!player || !player.active) continue;
+    active.push(player);
+    const li = document.createElement('li');
+    li.className = 'display-row';
+    const dot = document.createElement('span');
+    dot.className = 'ddot';
+    dot.style.setProperty('--c', PLAYER_COLORS[player.color % PLAYER_COLORS.length]);
+    const name = document.createElement('span');
+    name.className = 'dname';
+    name.textContent = player.name;
+    if (player.bot) {
+      const tag = document.createElement('span');
+      tag.className = 'btag';
+      tag.textContent = 'BOT';
+      name.appendChild(tag);
+    }
+    const state = document.createElement('span');
+    state.className = 'dstate';
+    state.textContent = player.ready ? 'READY' : 'WAITING';
+    if (player.ready) state.classList.add('on');
+    li.append(dot, name, state);
+    fragment.appendChild(li);
+  }
+  if (active.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'display-row';
+    empty.style.gridTemplateColumns = '1fr';
+    const text = document.createElement('span');
+    text.className = 'dname';
+    text.textContent = 'No serpents yet — the QR code is the door.';
+    empty.appendChild(text);
+    fragment.appendChild(empty);
+  }
+  dom.displayRoster.replaceChildren(fragment);
+  dom.displayCount.textContent = `${active.length}/${MAX_ACTORS}`;
+
+  const ready = active.filter((player) => player.ready);
+  const bots = active.filter((player) => player.bot);
+  const humanReady = ready.some((player) => !player.bot);
+  setHidden(dom.displayControls, !app.amHost);
+  dom.displayBotBtn.disabled = active.length >= MAX_ACTORS || bots.length >= MAX_BOTS;
+  dom.displayBotBtn.textContent = bots.length >= MAX_BOTS ? 'BOT LIMIT' : '+ ADD BOT';
+  dom.displayStartBtn.disabled = active.length < 2;
+  if (!app.amHost) {
+    const hostPlayer = app.roster.get(app.hostId);
+    dom.displayHint.textContent = `Host: ${hostPlayer?.name || 'unknown'} · waiting for the start.`;
+  } else if (active.length < 2) {
+    dom.displayHint.textContent = 'Scan the QR — two serpents are needed to open the arena.';
+  } else if (!humanReady) {
+    dom.displayHint.textContent = 'Scan the QR — waiting for a phone to ready up, or press START.';
+  } else if (ready.length === active.length) {
+    dom.displayHint.textContent = 'All serpents ready — the arena opens automatically.';
+  } else {
+    dom.displayHint.textContent = `Ready up on the phones · ${ready.length}/${active.length} ready.`;
+  }
+  updateModeUI();
+}
+
 
 function renderOver() {
   const state = app.state;
@@ -1560,17 +1800,69 @@ function updateOverCount(state) {
   dom.overCount.textContent = String(Math.max(0, Math.ceil(state.timer / 1000)));
 }
 
+function selfSpectating() {
+  return !!ownEntry()?.spectate;
+}
+
 function updateReadyButtons() {
   const phase = app.phase;
   const canReady = phase === 'lobby' || phase === 'over';
   const mine = ownEntry();
   const ready = !!mine?.ready;
-  dom.readyBtn.textContent = ready ? 'CANCEL READY' : 'READY UP';
-  dom.readyBtn.classList.toggle('is-ready', ready);
-  dom.readyBtn.disabled = !canReady || !mine || app.hostId == null;
-  dom.rematchBtn.textContent = ready ? 'CANCEL READY' : 'READY FOR REMATCH';
-  dom.rematchBtn.classList.toggle('is-ready', ready);
-  dom.rematchBtn.disabled = !canReady || !mine;
+  const playable = !!mine && mine.active && !mine.spectate;
+  dom.readyBtn.textContent = !mine
+    ? 'READY UP'
+    : mine.spectate
+      ? 'SPECTATING'
+      : !mine.active
+        ? 'WAITING'
+        : ready
+          ? 'CANCEL READY'
+          : 'READY UP';
+  dom.readyBtn.classList.toggle('is-ready', ready && playable);
+  dom.readyBtn.disabled = !canReady || !playable || app.hostId == null;
+  dom.rematchBtn.textContent = !mine
+    ? 'READY FOR REMATCH'
+    : mine.spectate
+      ? 'SPECTATING'
+      : !mine.active
+        ? 'WAITING'
+        : ready
+          ? 'CANCEL READY'
+          : 'READY FOR REMATCH';
+  dom.rematchBtn.classList.toggle('is-ready', ready && playable);
+  dom.rematchBtn.disabled = !canReady || !playable;
+  updateModeUI();
+}
+
+function updateModeUI() {
+  const mine = ownEntry();
+  const canToggle =
+    !!mine && app.hostId != null && (app.phase === 'lobby' || app.phase === 'over');
+  const label = mine?.spectate ? 'JOIN AS PLAYER' : app.amHost ? 'DISPLAY MODE' : 'SPECTATE';
+  for (const button of [dom.modeBtn, dom.overModeBtn, dom.displayModeBtn]) {
+    if (!button) continue;
+    button.textContent = label;
+    button.disabled = !canToggle;
+  }
+  let note = 'Watch the arena without taking a player slot.';
+  if (!mine) note = 'Waiting for the host…';
+  else if (mine.spectate) note = 'You are watching. Join as a player whenever a slot is free.';
+  else if (!mine.active) note = 'Arena full — you will join when a slot frees.';
+  else if (app.amHost) note = 'Host a big-screen display: show the join QR without taking a player slot.';
+  if (dom.modeNote) {
+    dom.modeNote.textContent = note;
+    dom.modeNote.classList.toggle('is-watching', !!mine?.spectate);
+  }
+  updateSbJoin();
+}
+
+function updateSbJoin() {
+  const show =
+    app.amHost &&
+    selfSpectating() &&
+    (app.phase === 'countdown' || app.phase === 'round' || app.phase === 'over');
+  setHidden(dom.sbJoin, !show);
 }
 
 function updateSpectating(state) {
@@ -1579,7 +1871,10 @@ function updateSpectating(state) {
     const me = findActor(state, app.myId);
     const entry = ownEntry();
     if (!me) {
-      text = entry && entry.active === false ? 'SPECTATING · JOINS NEXT ROUND' : 'SYNCING WITH HOST';
+      if (app.amHost && entry?.spectate) text = 'DISPLAY MODE · WATCHING';
+      else if (entry?.spectate) text = 'SPECTATING';
+      else if (entry && entry.active === false) text = 'SPECTATING · JOINS NEXT ROUND';
+      else text = 'SYNCING WITH HOST';
     } else if (!me.alive) {
       text = 'CONSUMED · SPECTATING';
     }
@@ -1616,11 +1911,27 @@ function wireUI() {
   dom.rematchBtn.addEventListener('click', toggleReady);
   dom.addBotBtn.addEventListener('click', addBot);
   dom.startBtn.addEventListener('click', () => requestStart(true));
+  dom.displayStartBtn.addEventListener('click', () => requestStart(true));
   dom.overStartBtn.addEventListener('click', () => requestStart(true));
+  dom.displayBotBtn.addEventListener('click', addBot);
   dom.shareBtn.addEventListener('click', copyInvite);
+  dom.qrBtn.addEventListener('click', openQRModal);
+  dom.lobbyQrBtn.addEventListener('click', openQRModal);
+  dom.lobbyQrShow.addEventListener('click', openQRModal);
+  dom.sbQrBtn.addEventListener('click', openQRModal);
+  dom.displayCopy.addEventListener('click', copyInvite);
+  dom.displayCode.addEventListener('click', copyInvite);
+  dom.qrCopy.addEventListener('click', copyInvite);
+  dom.qrClose.addEventListener('click', closeQRModal);
+  dom.qrModal.addEventListener('click', (event) => {
+    if (event.target === dom.qrModal) closeQRModal();
+  });
   dom.connectCode.addEventListener('click', copyInvite);
   dom.lobbyCode.addEventListener('click', copyInvite);
   dom.retryBtn.addEventListener('click', () => location.reload());
+  dom.modeBtn.addEventListener('click', toggleSpectate);
+  dom.overModeBtn.addEventListener('click', toggleSpectate);
+  dom.displayModeBtn.addEventListener('click', toggleSpectate);
 
   dom.soundBtn.addEventListener('click', () => {
     app.sound.enabled = !app.sound.enabled;
@@ -1655,6 +1966,10 @@ function wireUI() {
   });
 
   window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !dom.qrModal.classList.contains('hidden')) {
+      closeQRModal();
+      return;
+    }
     const tag = event.target?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
       if (event.key === 'Enter') {
