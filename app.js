@@ -265,6 +265,7 @@ const app = {
   roster: new Map(),
   rosterOrder: [],
   lastDir: null,
+  inputSeq: 0,
   lastHostAt: 0,
   joinedAt: 0,
   hostLostAt: 0,
@@ -682,13 +683,25 @@ function sendHello(force = false) {
   if (app.phase === 'round' && app.lastDir != null) sendInputMsg(app.lastDir);
 }
 
-function sendInputMsg(dir) {
+function sendInputMsg(dir, duplicate = true) {
   if (!app.room || app.hostId == null || app.amHost) return;
+  const hostId = app.hostId;
+  app.inputSeq = (app.inputSeq + 1) % 1000000000;
+  const payload = JSON.stringify({ t: 'i', d: dir, q: app.inputSeq });
   try {
-    app.room.send(app.hostId, JSON.stringify({ t: 'i', d: dir }));
+    app.room.send(hostId, payload);
   } catch {
-    /* the input heartbeat retries */
+    return;
   }
+  if (!duplicate) return;
+  setTimeout(() => {
+    if (!app.room || app.amHost || app.hostId !== hostId) return;
+    try {
+      app.room.send(hostId, payload);
+    } catch {
+      /* one copy already left; the heartbeat sends the latest */
+    }
+  }, 30);
 }
 
 function hostConnectionLost() {
@@ -748,7 +761,8 @@ function becomeHost(takeover) {
     wins: selfInfo?.wins || 0,
     ready: false,
     active: !selfSpectate,
-    spectate: selfSpectate
+    spectate: selfSpectate,
+    lastInputSeq: 0
   });
 
   let peers = [];
@@ -770,7 +784,8 @@ function becomeHost(takeover) {
       wins: info?.wins || 0,
       ready: false,
       active,
-      spectate
+      spectate,
+      lastInputSeq: 0
     });
   }
   updateHostChip();
@@ -930,7 +945,7 @@ function hostOnMessage(from, msg) {
   } else if (msg.t === 'spectate') {
     hostSetSpectate(from, !!msg.v);
   } else if (msg.t === 'i') {
-    hostOnInput(from, msg.d);
+    hostOnInput(from, msg.d, msg.q);
   }
 }
 
@@ -956,7 +971,8 @@ function hostEnsurePeer(id, name) {
       wins: 0,
       ready: false,
       active,
-      spectate: false
+      spectate: false,
+      lastInputSeq: 0
     };
     host.players.set(id, player);
     hostPublishRoster();
@@ -1009,9 +1025,14 @@ function syncDisconnectedActors() {
   if (changed) hostPublishRoster();
 }
 
-function hostOnInput(id, dir) {
+function hostOnInput(id, dir, seq) {
   if (host.phase !== 'round' || !host.sim) return;
   if (!Number.isInteger(dir) || dir < 0 || dir > 3) return;
+  const player = host.players.get(id);
+  if (player && Number.isInteger(seq) && seq > 0) {
+    if (seq <= (player.lastInputSeq || 0)) return;
+    player.lastInputSeq = seq;
+  }
   const actor = host.sim.actors.find((entry) => entry.id === id);
   if (actor) pushInput(actor, dir);
 }
@@ -1236,7 +1257,8 @@ function addBot() {
     wins: 0,
     ready: true,
     active: true,
-    spectate: false
+    spectate: false,
+    lastInputSeq: 0
   });
   hostPublishRoster();
 }
@@ -1902,8 +1924,15 @@ function tryTurn(dir) {
   if (!state || state.phase !== 'round') return;
   const me = findActor(state, app.myId);
   if (!me || !me.alive) return;
-  if (app.amHost) hostOnInput(app.myId, dir);
-  else if (app.hostId != null) sendInputMsg(dir);
+  let delivered = false;
+  if (app.amHost) {
+    hostOnInput(app.myId, dir);
+    delivered = true;
+  } else if (app.hostId != null) {
+    sendInputMsg(dir);
+    delivered = true;
+  }
+  if (delivered) renderer.setLocalIntent(dir);
 }
 
 function wireUI() {
@@ -2033,7 +2062,7 @@ function wireUI() {
     }
     if (!app.amHost && app.hostId != null && app.state?.phase === 'round' && app.lastDir != null) {
       const me = findActor(app.state, app.myId);
-      if (me && me.alive) sendInputMsg(app.lastDir);
+      if (me && me.alive) sendInputMsg(app.lastDir, false);
     }
   }, TICK_MS);
 

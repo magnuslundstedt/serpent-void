@@ -3,8 +3,25 @@ import { W, H, PLAYER_COLORS, cellX, cellY } from './sim.js';
 const SIDE_NAMES = ['E', 'S', 'W', 'N'];
 export const sideLabel = (side) => SIDE_NAMES[side & 3] || '?';
 
+const RENDER_DELAY_MS = 45;
+const DIR_X = [0, 1, 0, -1];
+const DIR_Y = [-1, 0, 1, 0];
+
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 const lerp = (a, b, t) => a + (b - a) * t;
+
+function actorDirection(actor) {
+  if (!actor || !actor.alive || !Array.isArray(actor.body) || actor.body.length < 2) return null;
+  const head = actor.body[0];
+  const neck = actor.body[1];
+  const dx = cellX(head) - cellX(neck);
+  const dy = cellY(head) - cellY(neck);
+  if (dx === 1 && dy === 0) return 1;
+  if (dx === -1 && dy === 0) return 3;
+  if (dx === 0 && dy === 1) return 2;
+  if (dx === 0 && dy === -1) return 0;
+  return null;
+}
 
 function rgba(hex, alpha) {
   const n = parseInt(hex.slice(1), 16);
@@ -53,6 +70,7 @@ export class ArenaRenderer {
     this.shake = 0;
     this.flash = 0;
     this.flashColor = '#ff4d6d';
+    this.localIntent = null;
     this.reduced =
       opts.reducedMotion || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
     this.lastFrame = 0;
@@ -93,11 +111,17 @@ export class ArenaRenderer {
     this.roster = roster;
   }
 
+  setLocalIntent(dir) {
+    if (!Number.isInteger(dir) || dir < 0 || dir > 3) return;
+    this.localIntent = { dir, at: performance.now() };
+  }
+
   reset() {
     this.states = [];
     this.particles = [];
     this.shake = 0;
     this.flash = 0;
+    this.localIntent = null;
   }
 
   resize() {
@@ -131,6 +155,13 @@ export class ArenaRenderer {
     const at = performance.now();
     this.states.push({ s: state, at });
     if (this.states.length > 14) this.states.shift();
+    if (this.localIntent) {
+      const me = (state.actors || []).find((actor) => actor.id === this.myId);
+      const facing = actorDirection(me);
+      if ((facing != null && facing === this.localIntent.dir) || at - this.localIntent.at > 420) {
+        this.localIntent = null;
+      }
+    }
     if (previous) this.diff(previous, state);
   }
 
@@ -243,7 +274,7 @@ export class ArenaRenderer {
   pickPair(now) {
     const states = this.states;
     if (!states.length) return null;
-    const target = now - 75;
+    const target = now - RENDER_DELAY_MS;
     let index = states.length - 1;
     while (index > 0 && states[index].at > target) index--;
     const prev = states[index];
@@ -742,6 +773,18 @@ export class ArenaRenderer {
       dirX /= len;
       dirY /= len;
 
+      const facing = actorDirection(actor);
+      const intent =
+        isMe && this.localIntent && now - this.localIntent.at < 420 ? this.localIntent.dir : null;
+      const showIntent =
+        intent != null && facing != null && intent !== facing && intent !== ((facing + 2) & 3);
+      let eyeX = dirX;
+      let eyeY = dirY;
+      if (showIntent) {
+        eyeX = DIR_X[intent];
+        eyeY = DIR_Y[intent];
+      }
+
       ctx.save();
       const headR = cell * (ghost ? 0.33 : 0.38);
       ctx.shadowColor = color;
@@ -755,25 +798,25 @@ export class ArenaRenderer {
 
       const eyeForward = headR * 0.34;
       const eyeSide = headR * 0.42;
-      const px = -dirY;
-      const py = dirX;
+      const px = -eyeY;
+      const py = eyeX;
       const eyeR = Math.max(1.1, cell * 0.085);
       for (const sign of [-1, 1]) {
-        const ex = headPoint.x + dirX * eyeForward + px * eyeSide * sign;
-        const ey = headPoint.y + dirY * eyeForward + py * eyeSide * sign;
+        const ex = headPoint.x + eyeX * eyeForward + px * eyeSide * sign;
+        const ey = headPoint.y + eyeY * eyeForward + py * eyeSide * sign;
         ctx.fillStyle = 'rgba(255,255,255,0.94)';
         ctx.beginPath();
         ctx.arc(ex, ey, eyeR, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#07101d';
         ctx.beginPath();
-        ctx.arc(ex + dirX * eyeR * 0.45, ey + dirY * eyeR * 0.45, eyeR * 0.52, 0, Math.PI * 2);
+        ctx.arc(ex + eyeX * eyeR * 0.45, ey + eyeY * eyeR * 0.45, eyeR * 0.52, 0, Math.PI * 2);
         ctx.fill();
       }
 
       if (isMe) {
-        ctx.strokeStyle = rgba('#ffffff', 0.55 + 0.2 * Math.sin(now / 220));
-        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = rgba('#ffffff', showIntent ? 0.92 : 0.55 + 0.2 * Math.sin(now / 220));
+        ctx.lineWidth = showIntent ? 2 : 1.4;
         ctx.setLineDash([]);
         ctx.beginPath();
         ctx.arc(headPoint.x, headPoint.y, headR + cell * 0.36, 0, Math.PI * 2);
@@ -785,6 +828,35 @@ export class ArenaRenderer {
         ctx.beginPath();
         ctx.arc(headPoint.x, headPoint.y, headR + cell * 0.3, 0, Math.PI * 2);
         ctx.stroke();
+      }
+      if (showIntent) {
+        const age = now - this.localIntent.at;
+        const fade = clamp(1 - age / 420, 0, 1);
+        const distance = cell * (0.98 + 0.07 * Math.sin(now / 90));
+        const tipX = headPoint.x + eyeX * distance;
+        const tipY = headPoint.y + eyeY * distance;
+        const size = Math.max(4, cell * 0.22);
+        const backX = -eyeX;
+        const backY = -eyeY;
+        const sideX = -eyeY;
+        const sideY = eyeX;
+        ctx.globalAlpha = 0.95 * fade;
+        ctx.strokeStyle = '#e8ffff';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = cell * 0.8;
+        ctx.lineWidth = Math.max(1.7, cell * 0.1);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(tipX + backX * size + sideX * size, tipY + backY * size + sideY * size);
+        ctx.lineTo(tipX, tipY);
+        ctx.lineTo(tipX + backX * size - sideX * size, tipY + backY * size - sideY * size);
+        ctx.stroke();
+        ctx.globalAlpha = 0.22 * fade;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, cell * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
       ctx.restore();
 
